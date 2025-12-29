@@ -3,6 +3,7 @@ package storage
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"sib/internal/core/objects"
@@ -15,13 +16,17 @@ type ObjectStore struct {
 }
 
 // NewObjectStore создает новое хранилище объектов
-func NewObjectStore(repoPath string) *ObjectStore {
-	// Формируем путь к директории objects
+func NewObjectStore(repoPath string) (*ObjectStore, error) {
 	objectsDir := filepath.Join(repoPath, ".sib", "objects")
+
+	// ПРОВЕРЯЕМ, что директория существует
+	if _, err := os.Stat(objectsDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("not a sib repository: .sib/objects not found")
+	}
 
 	return &ObjectStore{
 		objectsDir: objectsDir,
-	}
+	}, nil
 }
 
 // calculateHash вычисляет SHA-256 хеш от данных

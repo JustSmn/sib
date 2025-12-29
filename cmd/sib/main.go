@@ -1,14 +1,17 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
-
-	"sib/internal/core/objects"
-	"sib/internal/core/storage"
+	"sib/cmd"
 )
+
+func main() {
+	cmd.Execute()
+}
+
+//TODO: Создать Makefile для разных ОС
+
+/*
+Весь следующий код был написан исключительно ради тестирования!
 
 func main() {
 	// Создаем временную директорию для демонстрации
@@ -158,3 +161,4 @@ func showStorageStructure(store *storage.ObjectStore, basePath string) {
 
 	time.Sleep(time.Second * 300)
 }
+*/

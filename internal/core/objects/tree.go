@@ -64,7 +64,12 @@ func NewTree() *Tree {
 }
 
 func (t *Tree) AddEntry(entry TreeEntry) error {
-	// TODO: РЕАЛИЗОВАТЬ ВАЛИДАЦИЮ
+	if entry.name == "" {
+		return fmt.Errorf("entry name cannot be empty")
+	}
+	if entry.hash.IsEmpty() {
+		return fmt.Errorf("entry hash cannot be empty")
+	}
 
 	// Проверяем дубликаты по имени
 	for i, e := range t.entries {
@@ -136,41 +141,70 @@ func (t *Tree) SetHash(h Hash) { t.hash = h }
 // Type возвращает тип объекта
 func (t *Tree) Type() ObjectType { return TreeObject }
 
+// ==================== СЕРИАЛИЗАЦИЯ ====================
+
+// treeEntryJSON - приватная структура для JSON сериализации
+type treeEntryJSON struct {
+	Mode    FileMode   `json:"mode"`
+	Name    string     `json:"name"`
+	Hash    Hash       `json:"hash"`
+	ObjType ObjectType `json:"objType"`
+}
+
+// treeJSON - приватная структура для JSON сериализации
+type treeJSON struct {
+	Type    ObjectType      `json:"type"`
+	Entries []treeEntryJSON `json:"entries"`
+}
+
+// toJSONEntry конвертирует TreeEntry в treeEntryJSON
+func (te *TreeEntry) toJSONEntry() treeEntryJSON {
+	return treeEntryJSON{
+		Mode:    te.mode,
+		Name:    te.name,
+		Hash:    te.hash,
+		ObjType: te.objType,
+	}
+}
+
+// fromJSONEntry создает TreeEntry из treeEntryJSON
+func fromJSONEntry(je treeEntryJSON) (*TreeEntry, error) {
+	return NewTreeEntry(je.Mode, je.Name, je.Hash, je.ObjType)
+}
+
 // Serialize преобразует tree в байтовое представление
-// Формат: канонический JSON с отсортированными полями
 func (t *Tree) Serialize() ([]byte, error) {
 	if len(t.entries) == 0 {
 		return nil, fmt.Errorf("tree cannot be empty")
 	}
 
-	// Создаем структуру для сериализации с гарантированным порядком полей
-	type serializableTree struct {
-		Type    ObjectType  `json:"type"`
-		Entries []TreeEntry `json:"entries"`
+	// Конвертируем entries в JSON формат
+	jsonEntries := make([]treeEntryJSON, len(t.entries))
+	for i, entry := range t.entries {
+		jsonEntries[i] = entry.toJSONEntry()
 	}
 
-	st := serializableTree{
+	// Создаем JSON структуру
+	tj := treeJSON{
 		Type:    TreeObject,
-		Entries: t.entries,
+		Entries: jsonEntries,
 	}
 
-	// Используем канонический JSON (отсортированные ключи, без лишних пробелов)
+	// Сериализуем в JSON (без отступов для детерминизма)
 	var buf bytes.Buffer
-
 	encoder := json.NewEncoder(&buf)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "") // Без отступов для детерминизма
+	encoder.SetIndent("", "")
 
-	if err := encoder.Encode(st); err != nil {
+	if err := encoder.Encode(tj); err != nil {
 		return nil, fmt.Errorf("failed to serialize tree: %w", err)
 	}
 
-	// Убираем лишний перенос строки, добавленный json.Encoder
+	// Убираем лишний перенос строки
 	data := bytes.TrimSpace(buf.Bytes())
 
 	// Добавляем Git-заголовок
 	header := fmt.Sprintf("%s %d", t.Type(), len(data))
-
 	result := append([]byte(header), 0)
 	result = append(result, data...)
 
@@ -178,31 +212,30 @@ func (t *Tree) Serialize() ([]byte, error) {
 }
 
 // DeserializeTree создает Tree из байтового представления
-// Это пригодится при чтении объектов из хранилища
-// DeserializeTree создает Tree из байтового представления
 func DeserializeTree(data []byte) (*Tree, error) {
-	// Находим разделитель
+	// Находим нулевой байт-разделитель
 	for i, b := range data {
 		if b == 0 {
 			// Парсим JSON часть
-			var st struct {
-				Type    ObjectType  `json:"type"`
-				Entries []TreeEntry `json:"entries"`
-			}
-
-			if err := json.Unmarshal(data[i+1:], &st); err != nil {
+			var tj treeJSON
+			if err := json.Unmarshal(data[i+1:], &tj); err != nil {
 				return nil, fmt.Errorf("failed to deserialize tree: %w", err)
 			}
 
-			if st.Type != TreeObject {
-				return nil, fmt.Errorf("invalid object type: expected tree, got %s", st.Type)
+			// Проверяем тип
+			if tj.Type != TreeObject {
+				return nil, fmt.Errorf("invalid object type: expected tree, got %s", tj.Type)
 			}
 
 			// Создаем tree и добавляем записи
 			tree := NewTree()
-			for _, entry := range st.Entries {
-				if err := tree.AddEntry(entry); err != nil {
+			for _, jsonEntry := range tj.Entries {
+				entry, err := fromJSONEntry(jsonEntry)
+				if err != nil {
 					return nil, fmt.Errorf("invalid tree entry during deserialization: %w", err)
+				}
+				if err := tree.AddEntry(*entry); err != nil {
+					return nil, fmt.Errorf("failed to add tree entry: %w", err)
 				}
 			}
 
